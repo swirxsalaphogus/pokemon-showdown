@@ -8,6 +8,7 @@
 import {strict as assert} from 'assert';
 import * as fs from 'fs';
 
+import {Dex} from '..';
 import {ObjectReadWriteStream} from '../../lib/streams';
 import {Battle} from '../battle';
 import * as BattleStreams from '../battle-stream';
@@ -219,7 +220,7 @@ class DualStream {
 		const test = this.test.battle.toJSON();
 		try {
 			assert.deepEqual(State.normalize(test), State.normalize(control));
-		} catch (err) {
+		} catch (err: any) {
 			if (this.debug) {
 				// NOTE: diffing these directly won't work because the key ordering isn't stable.
 				fs.writeFileSync('logs/control.json', JSON.stringify(control, null, 2));

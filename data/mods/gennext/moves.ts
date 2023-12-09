@@ -141,7 +141,7 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		condition: {
 			onStart(target) {
 				this.add('-start', target, 'Substitute');
-				this.effectData.hp = Math.floor(target.maxhp / 4);
+				this.effectState.hp = Math.floor(target.maxhp / 4);
 				delete target.volatiles['partiallytrapped'];
 			},
 			onAccuracyPriority: -100,
@@ -150,7 +150,7 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 			},
 			onTryPrimaryHitPriority: 2,
 			onTryPrimaryHit(target, source, move) {
-				if (target === source || move.flags['authentic'] || move.infiltrates) {
+				if (target === source || move.flags['bypasssub'] || move.infiltrates) {
 					return;
 				}
 				let damage = this.actions.getDamage(source, target, move);
@@ -630,7 +630,7 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 			onStart(pokemon) {
 				if (pokemon.removeVolatile('bidestall') || pokemon.hp <= 1) return false;
 				pokemon.addVolatile('bidestall');
-				this.effectData.totalDamage = 0;
+				this.effectState.totalDamage = 0;
 				this.add('-start', pokemon, 'Bide');
 			},
 			onDamagePriority: -11,
@@ -640,8 +640,8 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 				if (effect.effectType === 'Move' && damage >= target.hp) {
 					damage = target.hp - 1;
 				}
-				this.effectData.totalDamage += damage;
-				this.effectData.sourceSlot = source.getSlot();
+				this.effectState.totalDamage += damage;
+				this.effectState.sourceSlot = source.getSlot();
 				return damage;
 			},
 			onAfterSetStatus(status, pokemon) {
@@ -651,16 +651,16 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 				}
 			},
 			onBeforeMove(pokemon, t, move) {
-				if (this.effectData.duration === 1) {
-					if (!this.effectData.totalDamage) {
+				if (this.effectState.duration === 1) {
+					if (!this.effectState.totalDamage) {
 						this.add('-end', pokemon, 'Bide');
 						this.add('-fail', pokemon);
 						return false;
 					}
 					this.add('-end', pokemon, 'Bide');
-					const target = this.getAtSlot(this.effectData.sourceSlot);
+					const target = this.getAtSlot(this.effectState.sourceSlot);
 					const moveData = {
-						damage: this.effectData.totalDamage * 2,
+						damage: this.effectState.totalDamage * 2,
 					} as unknown as ActiveMove;
 					this.actions.moveHit(target, pokemon, this.dex.getActiveMove('bide'), moveData);
 					return false;
@@ -822,10 +822,10 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		inherit: true,
 		condition: {
 			// this is a side condition
-			onStart(side) {
+			onSideStart(side) {
 				this.add('-sidestart', side, 'move: Stealth Rock');
 			},
-			onSwitchIn(pokemon) {
+			onEntryHazard(pokemon) {
 				let factor = 2;
 				if (pokemon.hasType('Flying')) factor = 4;
 				this.damage(pokemon.maxhp * factor / 16);
@@ -1272,10 +1272,9 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 					basePower: 80,
 					category: "Special",
 					priority: 0,
-					flags: {},
+					flags: {futuremove: 1},
 					ignoreImmunity: false,
 					effectType: 'Move',
-					isFutureMove: true,
 					type: 'Normal',
 				},
 			});

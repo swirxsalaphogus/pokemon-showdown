@@ -1,7 +1,7 @@
 Simulator protocol
 ==================
 
-Pokémon Showdown's simulator protocol is implemented as a newline-and-pipe-delimited text stream. For details on how to read to or write from the text stream, see `README.md`.
+Pokémon Showdown's simulator protocol is implemented as a newline-and-pipe-delimited text stream. For details on how to read to or write from the text stream, see [sim/SIMULATOR.md](./SIMULATOR.md).
 
 
 Receiving messages
@@ -63,7 +63,7 @@ The beginning of a battle will look something like this:
 
 `|gen|GENNUM`
 
-> Generation number, from 1 to 7. Stadium counts as its respective gens;
+> Generation number, from 1 to 9. Stadium counts as its respective gens;
 > Let's Go counts as 7, and modded formats count as whatever gen they were
 > based on.
 
@@ -203,13 +203,14 @@ Multi, player 1's perspective
 For example: `p1a: Sparky` could be a Charizard named Sparky.
 `p1: Dragonite` could be an inactive Dragonite being healed by Heal Bell.
 
-- `DETAILS` is a comma-separated list of all information about a pokemon
+- `DETAILS` is a comma-separated list of all information about a Pokemon
   visible on the battle screen: species, shininess, gender, and level. So it
-  starts with `SPECIES`, adding `, shiny` if it's shiny, `, M` if it's male,
-  `, F` if it's female, `, L##` if it's not level 100.
+  starts with `SPECIES`, adding `, L##` if it's not level 100, `M` if it's male,
+  `, F` if it's female, `, shiny` if it's shiny.
+  In Gen 9, `, tera:TYPE` will be appended if the Pokemon has Terastallized.
 
 So, for instance, `Deoxys-Speed` is a level 100 non-shiny genderless
-Deoxys (Speed forme). `Sawsbuck, shiny, F, L50` is a level 50 shiny female
+Deoxys (Speed forme). `Sawsbuck, L50, F, shiny` is a level 50 shiny female
 Sawsbuck (Spring form).
 
 In Team Preview, `DETAILS` will not include information not available in
@@ -443,6 +444,10 @@ stat boosts are minor actions.
 `|-sideend|SIDE|CONDITION`
 
 > Indicates that the side condition `CONDITION` ended for the given `SIDE`.
+
+`|-swapsideconditions`
+
+> Swaps side conditions between sides. Used for Court Change.
 
 `|-start|POKEMON|EFFECT`
 

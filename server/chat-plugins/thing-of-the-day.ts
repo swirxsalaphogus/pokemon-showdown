@@ -9,9 +9,9 @@ const DATA_FILE = 'config/chat-plugins/otds.json';
 
 export const prenoms: {[k: string]: [string, AnyObject][]} = JSON.parse(FS(PRENOMS_FILE).readIfExistsSync() || "{}");
 export const otdData: OtdData = JSON.parse(FS(DATA_FILE).readIfExistsSync() || "{}");
-export const otds: Map<string, OtdHandler> = new Map();
+export const otds = new Map<string, OtdHandler>();
 
-const FINISH_HANDLERS: {[k: string]: (winner: AnyObject) => void} = {
+const FINISH_HANDLERS: {[k: string]: (winner: AnyObject) => Promise<void>} = {
 	cotw: async winner => {
 		const {channel, nominator} = winner;
 		const searchResults = await YouTube.searchChannel(channel, 1);
@@ -97,13 +97,15 @@ class OtdHandler {
 		const id = settings.id || toID(title).charAt(0) + 'ot' + timeLabel.charAt(0);
 		const handler = new OtdHandler(id, room, settings);
 		otds.set(id, handler);
-		if (handler.keys[0] === 'time') {
-			handler.keys.shift();
-			handler.keyLabels.shift();
-			handler.keys.push('time');
-			handler.keyLabels.push('Timestamp');
-			handler.save();
+		let needsSave = false;
+		for (const winner of handler.winners) {
+			if (winner.timestamp) {
+				winner.time = winner.timestamp;
+				delete winner.timestamp;
+				needsSave = true;
+			}
 		}
+		if (needsSave) handler.save();
 		return handler;
 	}
 
@@ -294,7 +296,7 @@ class OtdHandler {
 		this.room.add(
 			Utils.html `|uhtml|otd|<div class="broadcast-blue"><p style="font-weight:bold;text-align:center;font-size:12pt;">` +
 			`Nominations for ${this.name} of the ${this.timeLabel} are over!</p><p style="tex-align:center;font-size:10pt;">` +
-			`Out of ${keys.length} nominations, we randomly selected <strong>${winner.nomination}</strong> as the winner!` +
+			`Out of ${keys.length} nominations, we randomly selected <strong>${winner.nomination}</strong> as the winner! ` +
 			`(Nomination by ${winner.name})</p><p style="font-weight:bold;">Thanks to today's participants:` + namesHTML
 		);
 		this.room.update();
@@ -392,7 +394,7 @@ class OtdHandler {
 			try {
 				const [width, height] = await Chat.fitImage(winner.image, 100, 100);
 				output += Utils.html `<td><img src="${winner.image}" width=${width} height=${height}></td>`;
-			} catch (err) {}
+			} catch {}
 		}
 		output += `<td style="text-align:right;margin:5px;">`;
 		if (winner.event) output += Utils.html `<b>Event:</b> ${winner.event}<br />`;
@@ -426,7 +428,7 @@ class OtdHandler {
 		return output;
 	}
 
-	generateWinnerList(context: PageContext) {
+	generateWinnerList(context: Chat.PageContext) {
 		context.title = `${this.id.toUpperCase()} Winners`;
 		let buf = `<div class="pad ladder"><h2>${this.name} of the ${this.timeLabel} Winners</h2>`;
 
@@ -442,6 +444,10 @@ class OtdHandler {
 				labels.push(this.keyLabels[i]);
 			}
 		}
+		if (!columns.includes('time')) {
+			columns.push('time');
+			labels.push('Timestamp');
+		}
 
 		let content = ``;
 
@@ -452,11 +458,11 @@ class OtdHandler {
 				if (!val) return '';
 				switch (col) {
 				case 'time':
-					const date = new Date(this.winners[i].time);
+					const date = new Date(parseInt(this.winners[i].time));
 
 					const pad = (num: number) => num < 10 ? '0' + num : num;
 
-					return Utils.html `${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${date.getFullYear()}`;
+					return Utils.html`${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${date.getFullYear()}`;
 				case 'song':
 					if (!this.winners[i].link) return val;
 					// falls through
@@ -490,7 +496,7 @@ function selectHandler(message: string) {
 	return handler;
 }
 
-export const otdCommands: ChatCommands = {
+export const otdCommands: Chat.ChatCommands = {
 	start(target, room, user, connection, cmd) {
 		this.checkChat();
 
@@ -672,7 +678,9 @@ export const otdCommands: ChatCommands = {
 			key = key.trim();
 			const value = values.join(':').trim();
 
-			if (!handler.keys.includes(key)) return this.errorReply(`Invalid value for property: ${key}`);
+			if (!handler.keys.includes(key)) {
+				return this.errorReply(`Invalid key: '${key}'. Valid keys: ${handler.keys.join(', ')}`);
+			}
 
 			switch (key) {
 			case 'artist':
@@ -688,6 +696,7 @@ export const otdCommands: ChatCommands = {
 			case 'tagline':
 			case 'match':
 			case 'event':
+			case 'videogame':
 				if (!value.length || value.length > 150) return this.errorReply(`Please enter a valid ${key}.`);
 				break;
 			case 'sport':
@@ -710,7 +719,11 @@ export const otdCommands: ChatCommands = {
 				if (isNaN(num) || num < 1 || num > 100) return this.errorReply('Please enter a valid number as an age');
 				break;
 			default:
-				return this.errorReply(`Invalid value for property: ${key}`);
+				// another custom key w/o validation
+				if (!toNominationId(value)) {
+					return this.errorReply(`No value provided for key ${key}.`);
+				}
+				break;
 			}
 
 			changelist[key] = value;
@@ -781,12 +794,12 @@ export const otdCommands: ChatCommands = {
 	},
 };
 
-export const pages: PageTable = {};
-export const commands: ChatCommands = {
+export const pages: Chat.PageTable = {};
+export const commands: Chat.ChatCommands = {
 	otd: {
 		create(target, room, user) {
 			room = this.requireRoom();
-			if (room.settings.isPrivate !== undefined) {
+			if (room.settings.isPrivate) {
 				return this.errorReply(`This command is only available in public rooms`);
 			}
 			const count = [...otds.values()].filter(otd => otd.room.roomid === room!.roomid).length;
@@ -889,11 +902,12 @@ const otdHelp = [
 	`- /-otd nom [nomination] - Nominate something for Thing of the Day.`,
 	`- /-otd remove [username] - Remove a user's nomination for the Thing of the Day and prevent them from voting again until the next round. Requires: % @ # &`,
 	`- /-otd end - End nominations for the Thing of the Day and set it to a randomly selected nomination. Requires: % @ # &`,
+	`- /-otd removewinner [nomination] - Remove a winner with the given [nomination] from the winners list. Requires: % @ # &`,
 	`- /-otd force [nomination] - Forcibly sets the Thing of the Day without a nomination round. Requires: # &`,
 	`- /-otd delay - Turns off the automatic 20 minute timer for Thing of the Day voting rounds. Requires: % @ # &`,
 	`- /-otd set property: value[, property: value] - Set the winner, quote, song, link or image for the current Thing of the Day. Requires: % @ # &`,
 	`- /-otd winners - Displays a list of previous things of the day.`,
-	`- /-otd toggleupdate [on|off] - Changes the Thing of the Day to display on nomination ([on] to update, [off] to turn off updates). Requires: % @ # &`,
+	`- /-otd toggleupdate [on|off] - Changes the Thing of the Day to display on nomination ([on] to update, [off] to turn off updates). Requires: # &`,
 ];
 
 for (const otd in otdData) {
@@ -915,14 +929,24 @@ for (const [k, v] of otds) {
 	commands[`${k}help`] = otdHelp;
 }
 
-export const onRenameRoom: Rooms.RenameHandler = (oldID, newID, room) => {
-	for (const otd in otdData) {
-		const data = otdData[otd];
-		if (data.settings.roomid === oldID) {
-			data.settings.roomid = newID;
-			const handler = otds.get(otd);
-			handler!.room = room as Room;
-			handler!.save();
+export const handlers: Chat.Handlers = {
+	onRenameRoom(oldID, newID, room) {
+		for (const otd in otdData) {
+			const data = otdData[otd];
+			if (data.settings.roomid === oldID) {
+				data.settings.roomid = newID;
+				const handler = otds.get(otd);
+				handler!.room = room as Room;
+				handler!.save();
+			}
 		}
+	},
+};
+
+export const punishmentfilter: Chat.PunishmentFilter = (user, punishment) => {
+	user = toID(user);
+	if (!['NAMELOCK', 'BAN'].includes(punishment.type)) return;
+	for (const handler of otds.values()) {
+		handler.removeNomination(user);
 	}
 };

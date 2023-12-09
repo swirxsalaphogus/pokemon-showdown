@@ -2,7 +2,7 @@
 
 const assert = require('./../assert');
 const common = require('./../common');
-const Utils = require('../../.lib-dist/utils').Utils;
+const Utils = require('../../dist/lib/utils').Utils;
 const BASE_TEAM_ORDER = [1, 2, 3, 4, 5, 6];
 
 const SINGLES_TEAMS = {
@@ -155,14 +155,17 @@ describe('Choices', function () {
 			}
 		});
 
-		it('should allow specifying move targets', function () {
-			battle = common.createBattle({gameType: 'doubles'}, [
-				[{species: "Gastrodon", ability: 'stickyhold', moves: ['gastroacid']}, {species: "Venusaur", ability: 'thickfat', moves: ['leechseed']}],
-				[{species: "Tyranitar", ability: 'unnerve', moves: ['knockoff']}, {species: "Zapdos", ability: 'pressure', moves: ['thunderwave']}],
+		it(`should allow specifying move targets`, function () {
+			battle = common.createBattle({gameType: 'doubles'}, [[
+				{species: "Gastrodon", ability: 'stickyhold', moves: ['gastroacid']},
+				{species: "Venusaur", ability: 'noguard', moves: ['leechseed']},
+			], [
+				{species: "Tyranitar", ability: 'unnerve', moves: ['knockoff']},
+				{species: "Zapdos", ability: 'pressure', moves: ['glare']}],
 			]);
 			const p2active = battle.p2.active;
 
-			battle.makeChoices('move gastroacid 1, move leechseed 2', 'move knockoff -2, move thunderwave -1');
+			battle.makeChoices('move gastroacid 1, move leechseed 2', 'move knockoff -2, move glare -1');
 			assert.equal(battle.turn, 2);
 
 			assert(p2active[0].volatiles['gastroacid']);
@@ -513,7 +516,7 @@ describe('Choices', function () {
 			}
 		});
 
-		it('should autocomplete a single-slot action in Singles for no Illusion', function () {
+		it('should autocomplete a single-slot choice in Singles', function () {
 			// Backwards-compatibility with the client. It should be useful for 3rd party bots/clients (Android?)
 			for (let i = 0; i < 5; i++) {
 				battle = common.createBattle({preview: true}, SINGLES_TEAMS.full);
@@ -575,7 +578,7 @@ describe('Choices', function () {
 			}
 		});
 
-		it('should autocomplete multi-slot decisions', function () {
+		it('should autocomplete multi-slot choices', function () {
 			for (let i = 0; i < 5; i++) {
 				battle = common.createBattle({preview: true}, SINGLES_TEAMS.full);
 				const teamOrder = Utils.shuffle(BASE_TEAM_ORDER.slice()).slice(0, 2);

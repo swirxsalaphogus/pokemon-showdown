@@ -12,9 +12,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const CRASH_EMAIL_THROTTLE = 5 * 60 * 1000; // 5 minutes
-const LOCKDOWN_PERIOD = 30 * 60 * 1000; // 30 minutes
 
-const logPath = path.resolve(__dirname, '../logs/errors.txt');
+const logPath = path.resolve(
+	// not sure why this is necessary, but in Windows testing it was
+	__dirname, '../', __dirname.includes(`${path.sep}dist${path.sep}`) ? '..' : '', 'logs/errors.txt'
+);
 let lastCrashLog = 0;
 let transport: any;
 
@@ -23,11 +25,14 @@ let transport: any;
  * to receive them.
  */
 export function crashlogger(
-	error: Error | string, description: string, data: AnyObject | null = null
+	error: unknown,
+	description: string,
+	data: AnyObject | null = null,
+	emailConfig: AnyObject | null = null,
 ): string | null {
 	const datenow = Date.now();
 
-	let stack = (typeof error === 'string' ? error : error?.stack) || '';
+	let stack = (typeof error === 'string' ? error : (error as Error)?.stack) || '';
 	if (data) {
 		stack += `\n\nAdditional information:\n`;
 		for (const k in data) {
@@ -44,13 +49,14 @@ export function crashlogger(
 		console.error(`\nSUBCRASH: ${err.stack}\n`);
 	});
 
-	if (Config.crashguardemail && ((datenow - lastCrashLog) > CRASH_EMAIL_THROTTLE)) {
+	const emailOpts = emailConfig || global.Config?.crashguardemail;
+	if (emailOpts && ((datenow - lastCrashLog) > CRASH_EMAIL_THROTTLE)) {
 		lastCrashLog = datenow;
 
 		if (!transport) {
 			try {
 				require.resolve('nodemailer');
-			} catch (e) {
+			} catch {
 				throw new Error(
 					'nodemailer is not installed, but it is required if Config.crashguardemail is configured! ' +
 					'Run npm install --no-save nodemailer and restart the server.'
@@ -63,8 +69,8 @@ export function crashlogger(
 			text += `again with this stack trace:\n${stack}`;
 		} else {
 			try {
-				transport = require('nodemailer').createTransport(Config.crashguardemail.options);
-			} catch (e) {
+				transport = require('nodemailer').createTransport(emailOpts.options);
+			} catch {
 				throw new Error("Failed to start nodemailer; are you sure you've configured Config.crashguardemail correctly?");
 			}
 
@@ -72,18 +78,13 @@ export function crashlogger(
 		}
 
 		transport.sendMail({
-			from: Config.crashguardemail.from,
-			to: Config.crashguardemail.to,
-			subject: Config.crashguardemail.subject,
+			from: emailOpts.from,
+			to: emailOpts.to,
+			subject: emailOpts.subject,
 			text,
 		}, (err: Error | null) => {
 			if (err) console.error(`Error sending email: ${err}`);
 		});
-	}
-
-	if (process.uptime() * 1000 < LOCKDOWN_PERIOD) {
-		// lock down the server
-		return 'lockdown';
 	}
 
 	return null;

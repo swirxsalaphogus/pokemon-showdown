@@ -1,14 +1,17 @@
 import {FS} from '../lib/fs';
+import type {RoomSection} from './chat-commands/room-settings';
+import {toID} from '../sim/dex-data';
 
-export type GroupSymbol = '~' | '&' | '#' | '★' | '*' | '@' | '%' | '☆' | '+' | ' ' | '‽' | '!';
+export type GroupSymbol = '~' | '&' | '#' | '★' | '*' | '@' | '%' | '☆' | '§' | '+' | '^' | ' ' | '‽' | '!';
 export type EffectiveGroupSymbol = GroupSymbol | 'whitelist';
 export type AuthLevel = EffectiveGroupSymbol | 'unlocked' | 'trusted' | 'autoconfirmed';
 
+export const SECTIONLEADER_SYMBOL: GroupSymbol = '\u00a7';
 export const PLAYER_SYMBOL: GroupSymbol = '\u2606';
 export const HOST_SYMBOL: GroupSymbol = '\u2605';
 
 export const ROOM_PERMISSIONS = [
-	'addhtml', 'announce', 'ban', 'bypassafktimer', 'declare', 'editprivacy', 'editroom', 'exportinputlog', 'game', 'gamemanagement', 'gamemoderation', 'joinbattle', 'kick', 'minigame', 'modchat', 'modlog', 'mute', 'nooverride', 'receiveauthmessages', 'roombot', 'roomdriver', 'roommod', 'roomowner', 'roomvoice', 'roomprizewinner', 'show', 'showmedia', 'timer', 'tournaments', 'warn',
+	'addhtml', 'announce', 'ban', 'bypassafktimer', 'declare', 'editprivacy', 'editroom', 'exportinputlog', 'game', 'gamemanagement', 'gamemoderation', 'joinbattle', 'kick', 'minigame', 'modchat', 'modlog', 'mute', 'nooverride', 'receiveauthmessages', 'roombot', 'roomdriver', 'roommod', 'roomowner', 'roomsectionleader', 'roomvoice', 'roomprizewinner', 'show', 'showmedia', 'timer', 'tournaments', 'warn',
 ] as const;
 
 export const GLOBAL_PERMISSIONS = [
@@ -52,7 +55,7 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 	 * users with temporary global auth.
 	 */
 	get(user: ID | User) {
-		if (typeof user !== 'string') return (user as User).tempGroup;
+		if (typeof user !== 'string') return user.tempGroup;
 		return super.get(user) || Auth.defaultSymbol();
 	}
 	isStaff(userid: ID) {
@@ -61,7 +64,7 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 			// At one point bots used to be ranked above drivers, so this checks
 			// driver rank to make sure this function works on servers that
 			// did not reorder the ranks.
-			return Auth.atLeast(rank, '*') || Auth.atLeast(rank, '%');
+			return Auth.atLeast(rank, '*') || Auth.atLeast(rank, SECTIONLEADER_SYMBOL) || Auth.atLeast(rank, '%');
 		} else {
 			return false;
 		}
@@ -70,7 +73,7 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 		if (user.hasSysopAccess()) return true;
 		if (group === 'trusted' || group === 'autoconfirmed') {
 			if (user.trusted && group === 'trusted') return true;
-			if (user.autoconfirmed && group === 'autoconfirmed') return true;
+			if (user.autoconfirmed && !user.locked && group === 'autoconfirmed') return true;
 			group = Config.groupsranking[1];
 		}
 		if (user.locked || user.semilocked) return false;
@@ -113,7 +116,8 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 		permission: string,
 		target: User | EffectiveGroupSymbol | ID | null,
 		room?: BasicRoom | null,
-		cmd?: string
+		cmd?: string,
+		cmdToken?: string,
 	): boolean {
 		if (user.hasSysopAccess()) return true;
 
@@ -133,8 +137,18 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 			targetSymbol = Auth.defaultSymbol();
 		}
 
-		const group = Auth.getGroup(symbol);
+		let group = Auth.getGroup(symbol);
 		if (group['root']) return true;
+		if (
+			room?.settings.section &&
+			room.settings.section === Users.globalAuth.sectionLeaders.get(user.id) &&
+			// Global drivers who are SLs should get room mod powers too
+			Users.globalAuth.atLeast(user, SECTIONLEADER_SYMBOL) &&
+			// But dont override ranks above moderator such as room owner
+			(Auth.getGroup('@').rank > group.rank)
+		) {
+			group = Auth.getGroup('@');
+		}
 
 		let jurisdiction = group[permission as GlobalPermission | RoomPermission];
 		if (jurisdiction === true && permission !== 'jurisdiction') {
@@ -144,18 +158,25 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 		if (roomPermissions) {
 			let foundSpecificPermission = false;
 			if (cmd) {
+				if (!cmdToken) cmdToken = `/`;
 				const namespace = cmd.slice(0, cmd.indexOf(' '));
-				if (roomPermissions[`/${cmd}`]) {
+				if (roomPermissions[`${cmdToken}${cmd}`]) {
 					// this checks sub commands and command objects, but it checks to see if a sub-command
 					// overrides (should a perm for the command object exist) first
-					if (!auth.atLeast(user, roomPermissions[`/${cmd}`])) return false;
+					if (!auth.atLeast(user, roomPermissions[`${cmdToken}${cmd}`])) return false;
 					jurisdiction = 'u';
 					foundSpecificPermission = true;
-				} else if (roomPermissions[`/${namespace}`]) {
+				} else if (roomPermissions[`${cmdToken}${namespace}`]) {
 					// if it's for one command object
-					if (!auth.atLeast(user, roomPermissions[`/${namespace}`])) return false;
+					if (!auth.atLeast(user, roomPermissions[`${cmdToken}${namespace}`])) return false;
 					jurisdiction = 'u';
 					foundSpecificPermission = true;
+				}
+				if (foundSpecificPermission && targetSymbol === Users.Auth.defaultSymbol()) {
+					// if /permissions has granted unranked users permission to use the command,
+					// grant jurisdiction over unranked (since unranked users don't have jurisdiction over unranked)
+					// see https://github.com/smogon/pokemon-showdown/pull/9534#issuecomment-1565719315
+					jurisdiction += Users.Auth.defaultSymbol();
 				}
 			}
 			if (!foundSpecificPermission && roomPermissions[permission]) {
@@ -169,9 +190,24 @@ export abstract class Auth extends Map<ID, GroupSymbol | ''> {
 		return Auth.getGroup(symbol).rank >= Auth.getGroup(symbol2).rank;
 	}
 	static supportedRoomPermissions(room: Room | null = null) {
+		const commands = [];
+		for (const handler of Chat.allCommands()) {
+			if (!handler.hasRoomPermissions && !handler.broadcastable) continue;
+
+			// if it's only broadcast permissions, not use permissions, use the broadcast symbol
+			const cmdPrefix = handler.hasRoomPermissions ? "/" : "!";
+			commands.push(`${cmdPrefix}${handler.fullCmd}`);
+			if (handler.aliases.length) {
+				for (const alias of handler.aliases) {
+					// kind of a hack but this is the only good way i could think of to
+					// overwrite the alias without making assumptions about the string
+					commands.push(`${cmdPrefix}${handler.fullCmd.replace(handler.cmd, alias)}`);
+				}
+			}
+		}
 		return [
 			...ROOM_PERMISSIONS,
-			...Chat.allCommands().filter(c => c.hasRoomPermissions).map(c => `/${c.fullCmd}`),
+			...commands,
 		];
 	}
 	static hasJurisdiction(
@@ -219,7 +255,7 @@ export class RoomAuth extends Auth {
 		this.room = room;
 	}
 	get(userOrID: ID | User): GroupSymbol {
-		const id = typeof userOrID === 'string' ? userOrID : (userOrID as User).id;
+		const id = typeof userOrID === 'string' ? userOrID : userOrID.id;
 
 		const parentAuth: Auth | null = this.room.parent ? this.room.parent.auth :
 			this.room.settings.isPrivate !== true ? Users.globalAuth : null;
@@ -251,6 +287,15 @@ export class RoomAuth extends Auth {
 		if (!this.room.persist && symbol === user.tempGroup) {
 			const replaceGroup = Auth.getGroup(symbol).globalGroupInPersonalRoom;
 			if (replaceGroup) return replaceGroup;
+		}
+		// this is a bit of a hardcode, yeah, but admins need to have admin commands in prooms w/o the symbol
+		// and we want that to include sysops.
+		// Plus, using user.can is cleaner than Users.globalAuth.get(user) === admin and it accounts for more things.
+		// (and no this won't recurse or anything since user.can() with no room doesn't call this)
+		if (this.room.settings.isPrivate === true && user.can('makeroom')) {
+			// not hardcoding & here since globalAuth.get should return & in basically all cases
+			// except sysops, and there's an override for them anyways so it doesn't matter
+			return Users.globalAuth.get(user);
 		}
 		return symbol;
 	}
@@ -295,6 +340,7 @@ export class RoomAuth extends Auth {
 
 export class GlobalAuth extends Auth {
 	usernames = new Map<ID, string>();
+	sectionLeaders = new Map<ID, RoomSection>();
 	constructor() {
 		super();
 		this.load();
@@ -303,7 +349,7 @@ export class GlobalAuth extends Auth {
 		FS('config/usergroups.csv').writeUpdate(() => {
 			let buffer = '';
 			for (const [userid, groupSymbol] of this) {
-				buffer += `${this.usernames.get(userid) || userid},${groupSymbol}\n`;
+				buffer += `${this.usernames.get(userid) || userid},${groupSymbol},${this.sectionLeaders.get(userid) || ''}\n`;
 			}
 			return buffer;
 		});
@@ -312,15 +358,32 @@ export class GlobalAuth extends Auth {
 		const data = FS('config/usergroups.csv').readIfExistsSync();
 		for (const row of data.split("\n")) {
 			if (!row) continue;
-			const [name, symbol] = row.split(",");
+			const [name, symbol, sectionid] = row.split(",");
 			const id = toID(name);
+			if (!id) {
+				Monitor.warn('Dropping malformed usergroups line (missing ID):');
+				Monitor.warn(row);
+				continue;
+			}
 			this.usernames.set(id, name);
-			super.set(id, symbol.charAt(0) as GroupSymbol);
+			if (sectionid) this.sectionLeaders.set(id, sectionid as RoomSection);
+
+			// handle glitched entries where a user has two entries in usergroups.csv due to bugs
+			const newSymbol = symbol.charAt(0) as GroupSymbol;
+			// Yes, we HAVE to ensure that it exists in the super. super.get here returns either the group symbol,
+			// or the default symbol if it cannot find a symbol in the map.
+			// the default symbol is truthy, and the symbol for trusted user is ` `
+			// meaning that the preexisting && atLeast would return true, which would skip the row and nuke all trusted users
+			// on a fresh load (aka, a restart).
+			const preexistingSymbol = super.has(id) ? super.get(id) : null;
+			// take a user's highest rank in usergroups.csv
+			if (preexistingSymbol && Auth.atLeast(preexistingSymbol, newSymbol)) continue;
+			super.set(id, newSymbol);
 		}
 	}
 	set(id: ID, group: GroupSymbol, username?: string) {
 		if (!username) username = id;
-		const user = Users.get(id);
+		const user = Users.get(id, true);
 		if (user) {
 			user.tempGroup = group;
 			user.updateIdentity();
@@ -340,6 +403,33 @@ export class GlobalAuth extends Auth {
 			user.tempGroup = ' ';
 		}
 		this.usernames.delete(id);
+		this.save();
+		return true;
+	}
+	setSection(id: ID, sectionid: RoomSection, username?: string) {
+		if (!username) username = id;
+		const user = Users.get(id);
+		if (user) {
+			user.updateIdentity();
+			username = user.name;
+			Rooms.global.checkAutojoin(user);
+		}
+		if (!super.has(id)) this.set(id, ' ', username);
+		this.sectionLeaders.set(id, sectionid);
+		void this.save();
+		return this;
+	}
+	deleteSection(id: ID) {
+		if (!this.sectionLeaders.has(id)) return false;
+		this.sectionLeaders.delete(id);
+		if (super.get(id) === ' ') {
+			return this.delete(id);
+		}
+		const user = Users.get(id);
+		if (user) {
+			user.updateIdentity();
+			Rooms.global.checkAutojoin(user);
+		}
 		this.save();
 		return true;
 	}

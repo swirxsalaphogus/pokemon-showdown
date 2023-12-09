@@ -64,7 +64,7 @@ export class LadderStore {
 		try {
 			const data = await FS('config/ladders/' + this.formatid + '.tsv').readIfExists();
 			const ladder: LadderRow[] = [];
-			for (const dataLine of data.split('\n')) {
+			for (const dataLine of data.split('\n').slice(1)) {
 				const line = dataLine.trim();
 				if (!line) continue;
 				const row = line.split('\t');
@@ -73,7 +73,7 @@ export class LadderStore {
 			// console.log('Ladders(' + this.formatid + ') loaded tsv: ' + JSON.stringify(this.ladder));
 			ladderCaches.set(this.formatid, (this.ladder = ladder));
 			return this.ladder;
-		} catch (err) {
+		} catch {
 			// console.log('Ladders(' + this.formatid + ') err loading tsv: ' + JSON.stringify(this.ladder));
 		}
 		ladderCaches.set(this.formatid, (this.ladder = []));
@@ -272,7 +272,7 @@ export class LadderStore {
 			);
 
 			room.update();
-		} catch (e) {
+		} catch (e: any) {
 			if (!room.battle) return [p1score, null, null];
 			room.addRaw(`There was an error calculating rating changes:`);
 			room.add(e.stack);

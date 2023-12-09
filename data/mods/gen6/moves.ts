@@ -3,6 +3,14 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		inherit: true,
 		priority: 1,
 	},
+	assist: {
+		inherit: true,
+		flags: {noassist: 1, failcopycat: 1, nosleeptalk: 1},
+	},
+	copycat: {
+		inherit: true,
+		flags: {noassist: 1, failcopycat: 1, nosleeptalk: 1},
+	},
 	darkvoid: {
 		inherit: true,
 		accuracy: 80,
@@ -31,27 +39,26 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		condition: {
 			duration: 3,
 			onStart(target) {
-				const noEncore = ['encore', 'mimic', 'mirrormove', 'sketch', 'struggle', 'transform'];
 				const moveIndex = target.lastMove ? target.moves.indexOf(target.lastMove.id) : -1;
 				if (
-					!target.lastMove || noEncore.includes(target.lastMove.id) ||
+					!target.lastMove || target.lastMove.flags['failencore'] ||
 					!target.moveSlots[moveIndex] || target.moveSlots[moveIndex].pp <= 0
 				) {
 					// it failed
 					return false;
 				}
-				this.effectData.move = target.lastMove.id;
+				this.effectState.move = target.lastMove.id;
 				this.add('-start', target, 'Encore');
 				if (!this.queue.willMove(target)) {
-					this.effectData.duration++;
+					this.effectState.duration++;
 				}
 			},
 			onOverrideAction(pokemon, target, move) {
-				if (move.id !== this.effectData.move) return this.effectData.move;
+				if (move.id !== this.effectState.move) return this.effectState.move;
 			},
-			onResidualOrder: 13,
+			onResidualOrder: 16,
 			onResidual(target) {
-				const lockedMoveIndex = target.moves.indexOf(this.effectData.move);
+				const lockedMoveIndex = target.moves.indexOf(this.effectState.move);
 				if (lockedMoveIndex >= 0 && target.moveSlots[lockedMoveIndex].pp <= 0) {
 					// Encore ends early if you run out of PP
 					target.removeVolatile('encore');
@@ -61,11 +68,11 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 				this.add('-end', target, 'Encore');
 			},
 			onDisableMove(pokemon) {
-				if (!this.effectData.move || !pokemon.hasMove(this.effectData.move)) {
+				if (!this.effectState.move || !pokemon.hasMove(this.effectState.move)) {
 					return;
 				}
 				for (const moveSlot of pokemon.moveSlots) {
-					if (moveSlot.id !== this.effectData.move) {
+					if (moveSlot.id !== this.effectState.move) {
 						pokemon.disableMove(moveSlot.id);
 					}
 				}
@@ -87,6 +94,10 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		inherit: true,
 		basePower: 20,
 		pp: 15,
+	},
+	mefirst: {
+		inherit: true,
+		flags: {protect: 1, bypasssub: 1, noassist: 1, failcopycat: 1, failmefirst: 1, nosleeptalk: 1},
 	},
 	minimize: {
 		inherit: true,
@@ -111,6 +122,10 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 			},
 		},
 	},
+	metronome: {
+		inherit: true,
+		flags: {noassist: 1, failcopycat: 1, nosleeptalk: 1},
+	},
 	mistyterrain: {
 		inherit: true,
 		condition: {
@@ -134,16 +149,16 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 					return this.chainModify(0.5);
 				}
 			},
-			onStart(battle, source, effect) {
+			onFieldStart(field, source, effect) {
 				if (effect?.effectType === 'Ability') {
 					this.add('-fieldstart', 'move: Misty Terrain', '[from] ability: ' + effect, '[of] ' + source);
 				} else {
 					this.add('-fieldstart', 'move: Misty Terrain');
 				}
 			},
-			onResidualOrder: 21,
-			onResidualSubOrder: 2,
-			onEnd(side) {
+			onFieldResidualOrder: 27,
+			onFieldResidualSubOrder: 7,
+			onFieldEnd() {
 				this.add('-fieldend', 'Misty Terrain');
 			},
 		},
@@ -151,6 +166,10 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 	mysticalfire: {
 		inherit: true,
 		basePower: 65,
+	},
+	naturepower: {
+		inherit: true,
+		flags: {nosleeptalk: 1, noassist: 1, failcopycat: 1},
 	},
 	paraboliccharge: {
 		inherit: true,
@@ -174,6 +193,7 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 				if (move.type === 'Fire') {
 					this.add('-activate', pokemon, 'move: Powder');
 					this.damage(this.clampIntRange(Math.round(pokemon.maxhp / 4), 1));
+					this.attrLastMove('[still]');
 					return false;
 				}
 			},
@@ -187,24 +207,28 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		inherit: true,
 		ohko: true,
 	},
+	sleeptalk: {
+		inherit: true,
+		flags: {nosleeptalk: 1, noassist: 1, failcopycat: 1},
+	},
 	stockpile: {
 		inherit: true,
 		condition: {
 			noCopy: true,
 			onStart(target) {
-				this.effectData.layers = 1;
-				this.add('-start', target, 'stockpile' + this.effectData.layers);
+				this.effectState.layers = 1;
+				this.add('-start', target, 'stockpile' + this.effectState.layers);
 				this.boost({def: 1, spd: 1}, target, target);
 			},
 			onRestart(target) {
-				if (this.effectData.layers >= 3) return false;
-				this.effectData.layers++;
-				this.add('-start', target, 'stockpile' + this.effectData.layers);
+				if (this.effectState.layers >= 3) return false;
+				this.effectState.layers++;
+				this.add('-start', target, 'stockpile' + this.effectState.layers);
 				this.boost({def: 1, spd: 1}, target, target);
 			},
 			onEnd(target) {
-				const layers = this.effectData.layers * -1;
-				this.effectData.layers = 0;
+				const layers = this.effectState.layers * -1;
+				this.effectState.layers = 0;
 				this.boost({def: layers, spd: layers}, target, target);
 				this.add('-end', target, 'Stockpile');
 			},
@@ -242,7 +266,7 @@ export const Moves: {[k: string]: ModdedMoveData} = {
 		inherit: true,
 		condition: {
 			duration: 1,
-			onStart(target, source) {
+			onSideStart(target, source) {
 				this.add('-singleturn', source, 'Wide Guard');
 			},
 			onTryHitPriority: 4,

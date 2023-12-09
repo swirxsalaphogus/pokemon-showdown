@@ -13,6 +13,19 @@ export const Scripts: ModdedBattleScriptsData = {
 			}
 		}
 	},
+	pokemon: {
+		inherit: true,
+		getActionSpeed() {
+			let speed = this.getStat('spe', false, false);
+			if (this.battle.field.getPseudoWeather('trickroom')) {
+				speed = -speed;
+			}
+			if (this.battle.quickClawRoll && this.hasItem('quickclaw')) {
+				speed = 65535;
+			}
+			return speed;
+		},
+	},
 	actions: {
 		inherit: true,
 		modifyDamage(baseDamage, pokemon, target, move, suppressMessages = false) {
@@ -56,9 +69,6 @@ export const Scripts: ModdedBattleScriptsData = {
 			// Mod 2 (Damage is floored after all multipliers are in)
 			baseDamage = Math.floor(this.battle.runEvent('ModifyDamagePhase2', pokemon, target, move, baseDamage));
 
-			// this is not a modifier
-			baseDamage = this.battle.randomizer(baseDamage);
-
 			// STAB
 			if (move.forceSTAB || type !== '???' && pokemon.hasType(type)) {
 				// The "???" type never gets STAB
@@ -90,6 +100,9 @@ export const Scripts: ModdedBattleScriptsData = {
 
 			// Final modifier.
 			baseDamage = this.battle.runEvent('ModifyDamage', pokemon, target, move, baseDamage);
+
+			// this is not a modifier
+			baseDamage = this.battle.randomizer(baseDamage);
 
 			if (!Math.floor(baseDamage)) {
 				return 1;
@@ -215,7 +228,7 @@ export const Scripts: ModdedBattleScriptsData = {
 						lacksTarget = !target.isAdjacent(pokemon);
 					}
 				}
-				if (lacksTarget && !move.isFutureMove) {
+				if (lacksTarget && !move.flags['futuremove']) {
 					this.battle.attrLastMove('[notarget]');
 					this.battle.add('-notarget', pokemon);
 					return false;
@@ -438,7 +451,7 @@ export const Scripts: ModdedBattleScriptsData = {
 			}
 
 			if (move.recoil && move.totalDamage) {
-				this.battle.damage(this.calcRecoilDamage(move.totalDamage, move), pokemon, target, 'recoil');
+				this.battle.damage(this.calcRecoilDamage(move.totalDamage, move, pokemon), pokemon, target, 'recoil');
 			}
 
 			if (target && pokemon !== target) target.gotAttacked(move, damage, pokemon);
